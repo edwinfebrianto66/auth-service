@@ -65,7 +65,7 @@ export const refreshToken = (req, res) => {
   if (!refreshToken) return res.status(403).json({ message: 'Token tidak ditemukan' })
 
   try {
-    const user = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET)
+    const user = jwt.verify(refreshToken, process.env.JWT_SECRET)
     const newAccessToken = generateToken(user)
     res.json({ token: newAccessToken })
   } catch (err) {
@@ -92,18 +92,6 @@ export const forgotPassword = async (req, res) => {
   res.json({ message: 'Gunakan token ini untuk reset password', token })
 }
 
-export const resetPassword = async (req, res) => {
-  const { token, newPassword } = req.body
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    const hash = await bcrypt.hash(newPassword, 10)
-    await db.execute('UPDATE user SET password_hash = ? WHERE id = ?', [hash, decoded.id])
-    res.json({ message: 'Password berhasil direset' })
-  } catch (err) {
-    res.status(403).json({ message: 'Token reset tidak valid / expired' })
-  }
-}
-
 export const register = async (req, res) => {
   const { username, name, email, password } = req.body
   const hash = await bcrypt.hash(password, 10)
@@ -119,3 +107,70 @@ export const register = async (req, res) => {
 
   res.status(201).json({ message: 'Register sukses', token, refreshToken })
 }
+
+export const getMe = async (req, res) => {
+  const user = await getUserById(req.user.id)
+  const permissions = await getUserPermissions(req.user.id)
+
+  if (!user) return res.status(404).json({ message: 'User tidak ditemukan' })
+
+  res.json({
+    id: user.id,
+    name: user.name,
+    username: user.username,
+    role: user.role,
+    email: user.email,
+    phone: user.phone,
+    gender: user.gender,
+    address: user.address,
+    permissions
+  })
+}
+export const updateProfile = async (req, res) => {
+  const { name, email, phone, gender, address, nik } = req.body
+  const userId = req.user.id
+
+  await db.execute(
+    `UPDATE user SET 
+      name = ?, email = ?, phone = ?, gender = ?, address = ?, nik = ?
+    WHERE id = ?`,
+    [name, email, phone, gender, address, nik, userId]
+  )
+
+  // Ambil ulang user setelah update
+  const [rows] = await db.execute('SELECT * FROM user WHERE id = ?', [userId])
+  const updatedUser = rows[0]
+
+  res.json({
+    id: updatedUser.id,
+    username: updatedUser.username,
+    name: updatedUser.name,
+    email: updatedUser.email,
+    phone: updatedUser.phone,
+    gender: updatedUser.gender,
+    address: updatedUser.address,
+    nik: updatedUser.nik,
+    role: updatedUser.role,
+    last_login_at: updatedUser.last_login_at,
+    status_online: updatedUser.status_online,
+    permissions: req.user.permissions || []
+  })
+}
+
+export const resetPassword = async (req, res) => {
+  const userId = req.user.id
+  const { oldPassword, newPassword } = req.body
+
+  const [rows] = await db.execute('SELECT password_hash FROM user WHERE id = ?', [userId])
+  const user = rows[0]
+  if (!user) return res.status(404).json({ message: 'User not found' })
+
+  const match = await bcrypt.compare(oldPassword, user.password_hash.replace(/^\$2y/, '$2a'))
+  if (!match) return res.status(400).json({ message: 'Password lama salah' })
+
+  const newHash = await bcrypt.hash(newPassword, 10)
+  await db.execute('UPDATE user SET password_hash = ? WHERE id = ?', [newHash, userId])
+
+  return res.json({ success: true, message: 'Password updated' }) // <-- INI PENTING
+}
+

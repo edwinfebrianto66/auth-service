@@ -9,10 +9,7 @@ export const getUserByEmail = async (email) => {
 }
 
 export const getUserById = async (id) => {
-  const [rows] = await db.execute(
-    `SELECT id, username, name, email, last_login_at, status_online FROM user WHERE id = ?`,
-    [id]
-  )
+  const [rows] = await db.execute('SELECT * FROM user WHERE id = ?', [id])
   return rows[0]
 }
 
